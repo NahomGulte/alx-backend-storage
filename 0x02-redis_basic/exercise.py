@@ -1,18 +1,37 @@
 #!/usr/bin/env python3
 """
 This module defines a Cache class for storing and retrieving
-data in Redis using random keys and built-in serialization.
+data in Redis using random keys. It also tracks method calls
+using Redis's INCR command for analytics and debugging.
 """
 
 import redis
 import uuid
 from typing import Union, Callable, Optional
+from functools import wraps
+
+
+def count_calls(method: Callable) -> Callable:
+    """
+    Decorator that counts how many times a method is called.
+
+    It uses Redis's INCR command and stores the count using
+    the method's qualified name as the Redis key.
+    """
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        key = method.__qualname__
+        self._redis.incr(key)
+        return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 class Cache:
     """
     Cache class provides methods to interact with Redis for
-    temporary storage using randomly generated keys.
+    temporary storage using randomly generated keys. It also
+    supports tracking how many times each method is called.
     """
 
     def __init__(self) -> None:
@@ -23,6 +42,7 @@ class Cache:
         self._redis = redis.Redis()
         self._redis.flushdb()
 
+    @count_calls
     def store(self, data: Union[str, bytes, int, float]) -> str:
         """
         Store the given data in Redis under a randomly generated key.
@@ -37,10 +57,11 @@ class Cache:
         self._redis.set(key, data)
         return key
 
-    def get(self,
-            key: str,
-            fn: Optional[Callable[[bytes], Union[str, int, float, bytes]]] = None
-            ) -> Union[str, int, float, bytes, None]:
+    def get(
+        self,
+        key: str,
+        fn: Optional[Callable[[bytes], Union[str, int, float, bytes]]] = None
+    ) -> Union[str, int, float, bytes, None]:
         """
         Retrieve the data associated with the given key from Redis.
 
