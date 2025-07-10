@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 This module defines a Cache class for storing and retrieving
-data in Redis using random keys. It also tracks method calls
-using Redis's INCR command for analytics and debugging.
+data in Redis using random keys. It includes tracking of method
+call counts and input/output history using Redis lists and counters.
 """
 
 import redis
@@ -15,23 +15,71 @@ def count_calls(method: Callable) -> Callable:
     """
     Decorator that counts how many times a method is called.
 
-    It uses Redis's INCR command and stores the count using
-    the method's qualified name as the Redis key.
+    Uses Redis INCR to increment a counter stored under the method's
+    qualified name (e.g., 'Cache.store').
     """
     @wraps(method)
     def wrapper(self, *args, **kwargs):
         key = method.__qualname__
         self._redis.incr(key)
         return method(self, *args, **kwargs)
-
     return wrapper
+
+
+def call_history(method: Callable) -> Callable:
+    """
+    Decorator that stores the history of inputs and outputs
+    for a method in Redis lists.
+
+    Stores inputs in 'method_name:inputs' and outputs in 'method_name:outputs'.
+    """
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        input_key = f"{method.__qualname__}:inputs"
+        output_key = f"{method.__qualname__}:outputs"
+
+        # Store input arguments as string
+        self._redis.rpush(input_key, str(args))
+
+        # Call the actual method
+        result = method(self, *args, **kwargs)
+
+        # Store output
+        self._redis.rpush(output_key, str(result))
+
+        return result
+    return wrapper
+
+
+def replay(method: Callable) -> None:
+    """
+    Display the call history (inputs and outputs) of a method
+    recorded by the call_history decorator.
+
+    Args:
+        method: The method to replay.
+    """
+    r = redis.Redis()
+    name = method.__qualname__
+
+    inputs_key = f"{name}:inputs"
+    outputs_key = f"{name}:outputs"
+
+    inputs = r.lrange(inputs_key, 0, -1)
+    outputs = r.lrange(outputs_key, 0, -1)
+
+    call_count = len(inputs)
+    print(f"{name} was called {call_count} times:")
+
+    for inp, outp in zip(inputs, outputs):
+        print(f"{name}(*{inp.decode('utf-8')}) -> {outp.decode('utf-8')}")
 
 
 class Cache:
     """
     Cache class provides methods to interact with Redis for
     temporary storage using randomly generated keys. It also
-    supports tracking how many times each method is called.
+    supports call count tracking and input/output history logging.
     """
 
     def __init__(self) -> None:
@@ -42,6 +90,7 @@ class Cache:
         self._redis = redis.Redis()
         self._redis.flushdb()
 
+    @call_history
     @count_calls
     def store(self, data: Union[str, bytes, int, float]) -> str:
         """
