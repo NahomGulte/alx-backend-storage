@@ -1,38 +1,38 @@
 #!/usr/bin/env python3
 """
-This module defines a get_page function that retrieves and
-caches a web page's content using Redis, and counts how many
-times a particular URL has been accessed.
+This module defines get_page which fetches and caches HTML
+content from a given URL using Redis, and counts accesses.
 """
 
 import redis
 import requests
+
 
 r = redis.Redis()
 
 
 def get_page(url: str) -> str:
     """
-    Retrieve the HTML content of a URL, using Redis to cache
-    the result for 10 seconds and to count how many times
-    the URL was accessed.
+    Fetch the HTML content of the given URL. Cache it in Redis
+    for 10 seconds and track the number of times this URL has
+    been accessed using the key 'count:{url}'.
 
     Args:
-        url: A string containing the URL to fetch.
+        url (str): The target URL.
 
     Returns:
-        The HTML content as a string.
+        str: The HTML content of the response.
     """
-    cached_content = r.get(url)
-    if cached_content:
-        return cached_content.decode('utf-8')
+    # Check if page is cached
+    cached = r.get(url)
+    if cached:
+        return cached.decode('utf-8')
 
-    # Increment access count
+    # Not cached, so increment the counter
     r.incr(f"count:{url}")
 
-    # Fetch and cache
+    # Fetch the page
     response = requests.get(url)
     content = response.text
-    r.setex(url, 10, content)
 
-    return content
+    # Cache it with 10-second expiration
